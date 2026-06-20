@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PromptPay QR Code API</title>
+    <!-- โหลดตัวสร้าง QR Code และ Tailwind CSS มินิมอลผ่าน CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-white min-h-screen flex flex-col items-center justify-center p-6 antialiased">
+
+    <div class="flex flex-col items-center justify-center gap-6" id="app-container">
+        <!-- พื้นที่แสดงผลคิวอาร์โค้ด -->
+        <div id="qrcode-wrapper" class="relative border border-slate-100 bg-white rounded-2xl shadow-sm flex items-center justify-center p-2 transition-all duration-300 hover:shadow-md">
+            <div id="qrcode"></div>
+        </div>
+
+        <!-- ปุ่มดาวน์โหลดภาพ -->
+        <button id="btn-download" class="hidden w-full max-w-[285px] bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-bold py-3 px-5 rounded-xl transition-all duration-150 flex items-center justify-center space-x-2 gap-2 cursor-pointer shadow-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span>ดาวน์โหลดรหัสคิวอาร์</span>
+        </button>
+        
+        <!-- ข้อความแสดงผลเมื่อไม่มีข้อมูลชุดคำสั่ง -->
+        <div id="no-content" class="text-slate-400 text-xs text-center leading-relaxed">
+            <p class="font-semibold text-slate-700 text-sm mb-1">สถานะ: รอชุดข้อมูล API...</p>
+            ใช้งานผ่านทางลิงก์ URL เช่น <br>
+            <code class="bg-slate-50 border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-mono text-[11px] block mt-1.5 select-all">
+                ?status=d&payload=...&w=300px&h=300px
+            </code>
+        </div>
+    </div>
+
+    <script>
+        // ฟังก์ชันคำนวณ CRC16-CCITT False
+        function crc16CcittFalse(text) {
+            let crc = 0xFFFF;
+            for (let i = 0; i < text.length; i++) {
+                crc ^= text.charCodeAt(i) << 8;
+                for (let j = 0; j < 8; j++) {
+                    if ((crc & 0x8000) !== 0) {
+                        crc = ((crc << 1) ^ 0x1021) & 0xFFFF;
+                    } else {
+                        crc = (crc << 1) & 0xFFFF;
+                    }
+                }
+            }
+            return crc.toString(16).toUpperCase().padStart(4, '0');
+        }
+
+        // อ่านค่าจาก URL Params
+        const params = new URLSearchParams(window.location.search);
+        const status = params.get("status");
+        const payload = params.get("payload");
+        const w = params.get("w") || "300";
+        const h = params.get("h") || "300";
+
+        // แปลงความกว้างและสูงแบบปลอดภัย (กรองเอาแค่ตัวเลข)
+        function parseDimension(val, defaultValue) {
+            const cleaned = val.replace(/[^0-9]/g, '');
+            const num = parseInt(cleaned, 10);
+            return isNaN(num) || num <= 0 ? defaultValue : num;
+        }
+
+        const widthPx = parseDimension(w, 300);
+        const heightPx = parseDimension(h, 300);
+
+        const qrcodeWrapper = document.getElementById("qrcode-wrapper");
+        const qrcodeDiv = document.getElementById("qrcode");
+        const btnDownload = document.getElementById("btn-download");
+        const noContent = document.getElementById("no-content");
+
+        if (status === "d" && payload) {
+            // ซ่อนกล่องข้อความอธิบาย
+            noContent.style.display = 'none';
+
+            // ตั้งค่าดีไซน์และขนาดเฟรมตามพารามิเตอร์ที่ได้
+            qrcodeWrapper.style.width = widthPx + "px";
+            qrcodeWrapper.style.height = heightPx + "px";
+
+            // คำนวณ CRC และสร้างผลลัพธ์ข้อมูลสุดท้าย
+            const checksum = crc16CcittFalse(payload);
+            const finalPayload = payload + checksum;
+
+            // วาดภาพคิวอาร์บนหน้าจอ
+            new QRCode(qrcodeDiv, {
+                text: finalPayload,
+                width: Math.max(widthPx, heightPx),
+                height: Math.max(widthPx, heightPx) // ชิ้นงานเต็มพิกัดในกรอบ CSS
+            });
+
+            // ตกแต่งรูปคิวอาร์โค้ดภายในให้กางเต็มกรอบ CSS และเปลี่ยนรูปร่างปุ่มดาวน์โหลด
+            setTimeout(() => {
+                const qrImg = qrcodeDiv.querySelector("img");
+                if (qrImg) {
+                    qrImg.className = "w-full h-full object-contain select-none";
+                    // แสดงผลปุ่มดาวน์โหลด
+                    btnDownload.classList.remove("hidden");
+                    btnDownload.onclick = () => {
+                        const link = document.createElement('a');
+                        link.href = qrImg.src;
+                        link.download = `qr_${widthPx}x${heightPx}.png`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    };
+                }
+            }, 150);
+
+        } else if (status === "r") {
+            qrcodeWrapper.style.display = 'none';
+            btnDownload.style.display = 'none';
+            noContent.innerHTML = `
+                <div class="p-3.5 bg-rose-50 text-rose-500 rounded-full mb-2 border border-rose-100 flex items-center justify-center w-12 h-12 mx-auto">
+                    <svg class="w-6 h-6 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.27 15H18"></path></svg>
+                </div>
+                <h4 class="font-bold text-slate-800 text-sm">รีเซ็ตระบบแล้ว (Reset)</h4>
+                <p class="text-xs text-slate-400 mt-1">หน้าจอพร้อมสำหรับการรับข้อมูลทาง URL อีกครั้ง</p>
+            `;
+        } else {
+            qrcodeWrapper.style.display = 'none';
+            btnDownload.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
